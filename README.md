@@ -8,6 +8,7 @@ Analysiert die Rewe e-bons. Die bekommen sie von meinem Email provider (Proton).
 - Finds the REWE folder automatically
 - Downloads all PDF receipts from REWE emails
 - Saves them to the `receipts/` directory
+- (Coming soon) Analyze receipts with IONOS AI
 
 ## Setup
 
@@ -82,8 +83,23 @@ receipts/12345_Rechnung_REWE.pdf
 receipts/12346_Beleg_2025-11-29.pdf
 ```
 
+## IONOS AI Integration
+
+The project includes IONOS AI Model Hub integration for receipt analysis.
+
+See [IONOS_SETUP.md](IONOS_SETUP.md) for detailed setup instructions.
+
+**Quick Start:**
+1. Generate API token at IONOS DCD → Management → Token Manager
+2. Add to `.env`: `IONOS_API_TOKEN=your-token`
+3. Run examples: `python ionos_example.py`
+
 ## Security Note
 
 The `.env` file contains your personal credentials and is automatically ignored by git. Never commit this file to version control.
 
-For detailed IMAP setup instructions for different providers, see [SETUP.md](SETUP.md).
+## Documentation
+
+- [SETUP.md](SETUP.md) - Detailed IMAP setup for different providers
+- [USAGE.md](USAGE.md) - Quick start guide and troubleshooting
+- [IONOS_SETUP.md](IONOS_SETUP.md) - IONOS AI integration guide

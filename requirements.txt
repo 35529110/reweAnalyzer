@@ -1,0 +1,10 @@
+# Python dependencies for REWE Receipt Analyzer
+
+# For IONOS AI API calls
+requests>=2.31.0
+
+# For PDF text extraction
+pypdf>=3.17.0
+
+# Optional: For better JSON handling and type checking
+# typing-extensions>=4.8.0

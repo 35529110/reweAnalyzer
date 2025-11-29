@@ -208,3 +208,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# token
+token.txt
+# SQLite database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

@@ -4,6 +4,16 @@ import json
 import imaplib
 import email
 from email.header import decode_header
+from io import BytesIO
+from pypdf import PdfReader
+
+from receipt import Receipt
+from database import save_receipts_to_database
+
+from dotenv import load_dotenv
+load_dotenv()  # This loads the .env file
+
+receipts = list()
 
 def get_config():
     """
@@ -86,13 +96,42 @@ def list_folders(imap):
 
     return folder_list
 
-def download_pdf_attachments(imap, folder_name="REWE", output_dir="receipts"):
+def extract_text_from_pdf(pdf_bytes):
     """
-    Download PDF attachments from emails in a specific folder.
-    """
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    Extract text from PDF bytes.
 
+    Args:
+        pdf_bytes: PDF file content as bytes
+
+    Returns:
+        Extracted text as string
+    """
+    try:
+        pdf_file = BytesIO(pdf_bytes)
+        reader = PdfReader(pdf_file)
+
+        text = ""
+        for page_num, page in enumerate(reader.pages, 1):
+            page_text = page.extract_text()
+            text += f"\n--- Page {page_num} ---\n{page_text}\n"
+
+        return text.strip()
+    except Exception as e:
+        return f"Error extracting text: {e}"
+
+def download_pdf_attachments(imap, folder_name="REWE", save_to_disk=False):
+    """
+    Process PDF attachments from emails in a specific folder.
+    Keeps PDFs in memory and extracts text content.
+
+    Args:
+        imap: IMAP connection object
+        folder_name: Folder name to process
+        save_to_disk: If True, also saves PDFs to receipts/ directory
+
+    Returns:
+        List of dicts containing PDF data and extracted text
+    """
     # Select the folder
     print(f"\nSelecting folder: {folder_name}")
     status, messages = imap.select(folder_name)
@@ -110,11 +149,7 @@ def download_pdf_attachments(imap, folder_name="REWE", output_dir="receipts"):
 
     print(f"Processing {len(email_ids)} emails...")
 
-    downloaded_files = []
-
     for i, email_id in enumerate(email_ids, 1):
-        print(f"\nProcessing email {i}/{len(email_ids)} (ID: {email_id.decode()})...")
-
         # Fetch the email
         _, msg_data = imap.fetch(email_id, '(RFC822)')
 
@@ -128,8 +163,6 @@ def download_pdf_attachments(imap, folder_name="REWE", output_dir="receipts"):
             subject, encoding = decode_header(subject)[0]
             if isinstance(subject, bytes):
                 subject = subject.decode(encoding if encoding else 'utf-8')
-
-        print(f"  Subject: {subject}")
 
         # Get email date
         date = email_message.get('Date', 'unknown')
@@ -152,27 +185,25 @@ def download_pdf_attachments(imap, folder_name="REWE", output_dir="receipts"):
 
                 # Check if it's a PDF
                 if filename_decoded.lower().endswith('.pdf'):
-                    print(f"  Found PDF: {filename_decoded}")
+                    # Get PDF bytes (keep in memory)
+                    pdf_bytes = part.get_payload(decode=True)
 
-                    # Generate unique filename (include email ID to avoid duplicates)
-                    safe_filename = f"{email_id.decode()}_{filename_decoded}"
-                    filepath = os.path.join(output_dir, safe_filename)
+                    # Extract text from PDF
+                    extracted_text = extract_text_from_pdf(pdf_bytes)
 
-                    # Download the attachment
-                    with open(filepath, 'wb') as f:
-                        f.write(part.get_payload(decode=True))
-
-                    downloaded_files.append({
-                        'filename': safe_filename,
-                        'path': filepath,
+                    # Store receipt data in memory
+                    receipt_data = {
+                        'filename': filename_decoded,
                         'subject': subject,
                         'date': date,
-                        'email_id': email_id.decode()
-                    })
+                        'email_id': email_id.decode(),
+                        'pdf_bytes': pdf_bytes,  # Raw PDF data
+                        'extracted_text': extracted_text,  # Extracted text
+                        }
 
-                    print(f"  Downloaded: {filepath}")
+                    receipts.append(receipt_data)
 
-    return downloaded_files
+    return receipts
 
 def analyze_emails(username, password, server, port):
     """
@@ -213,16 +244,16 @@ def analyze_emails(username, password, server, port):
                 "folders": folders
             })
 
-        # Download PDF attachments from REWE folder
+        # Process PDF attachments from REWE folder (keep in memory)
         print(f"\nFound REWE folder: {rewe_folder}")
-        downloaded = download_pdf_attachments(imap, folder_name=rewe_folder)
+        receipts = download_pdf_attachments(imap, folder_name=rewe_folder, save_to_disk=False)
 
-        print(f"\n{'='*60}")
-        print(f"Summary: Downloaded {len(downloaded)} PDF receipts")
-        print(f"{'='*60}")
+        analyzed_receipts = []
+        for raw_receipt in receipts:
+            analyzed_receipts.append(Receipt.from_text(raw_receipt['extracted_text']))
 
-        for item in downloaded:
-            print(f"  - {item['filename']}")
+        # Save receipts to database
+        db_stats = save_receipts_to_database(analyzed_receipts)
 
         # Logout
         imap.logout()
@@ -231,8 +262,17 @@ def analyze_emails(username, password, server, port):
             "status": "success",
             "folders": folders,
             "rewe_folder": rewe_folder,
-            "downloaded_count": len(downloaded),
-            "downloaded_files": downloaded
+            "receipts_count": len(receipts),
+            "receipts": [
+                {
+                    'filename': r['filename'],
+                    'subject': r['subject'],
+                    'date': r['date'],
+                    'email_id': r['email_id'],
+                    'text_preview': r['extracted_text'][:200] + '...' if len(r['extracted_text']) > 200 else r['extracted_text']
+                }
+                for r in receipts
+            ]
         }, indent=2)
 
     except imaplib.IMAP4.error as e:
